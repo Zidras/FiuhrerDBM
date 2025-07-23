@@ -1,7 +1,7 @@
 local mod	= DBM:NewMod("Deathbringer", "DBM-Icecrown", 1)
 local L		= mod:GetLocalizedStrings()
 
-mod:SetRevision("20250723232740")
+mod:SetRevision("20250723233515")
 mod:SetCreatureID(37813)
 mod:SetUsedIcons(1, 2, 3, 4, 5, 6, 7, 8)
 mod:SetMinSyncRevision(20220905000000)
@@ -19,16 +19,15 @@ mod:RegisterEventsInCombat(
 	"SPELL_AURA_REMOVED 72385 72441 72442 72443",
 	"SPELL_SUMMON 72172 72173 72356 72357 72358",
 	"UNIT_DIED",
-	"UNIT_HEALTH boss1"
+	"UNIT_HEALTH"
 )
 
---local canShadowmeld = select(2, UnitRace("player")) == "NightElf"
---local canVanish = select(2, UnitClass("player")) == "ROGUE"
-local myRealm = select(3, DBM:GetMyPlayerInfo())
+local canShadowmeld = select(2, UnitRace("player")) == "NightElf"
+local canVanish = select(2, UnitClass("player")) == "ROGUE"
 
 -- General
 local timerCombatStart		= mod:NewCombatTimer(47.10)
-local enrageTimer			= mod:NewBerserkTimer((myRealm == "Lordaeron" or myRealm == "Frostmourne") and 420 or 480)
+local enrageTimer			= mod:NewBerserkTimer(480)
 
 mod:RemoveOption("HealthFrame")
 mod:AddBoolOption("RunePowerFrame", false, "misc")
@@ -47,11 +46,11 @@ local specwarnMark			= mod:NewSpecialWarningYou(72444, nil, 28836, nil, 1, 2)
 local specwarnRuneofBlood	= mod:NewSpecialWarningTaunt(72410, nil, nil, nil, 1, 2)
 local specwarnRuneofBloodYou= mod:NewSpecialWarningYou(72410, "Tank")
 
-local timerRuneofBlood		= mod:NewNextTimer(20, 72410, nil, "Tank|Healer", nil, 5, nil, DBM_COMMON_L.TANK_ICON) -- REVIEW! HC -> wipe -> N different script? First two timers stopped being fixed? (25N Lordaeron 2023/02/10) - pull:20.8, 19.3, 20.0, 20.0, 20.0, 20.1, 20.0, 20.0, 20.0, 20.0
-local timerBoilingBlood		= mod:NewCDTimer(15, 72385, nil, "Healer", nil, 5, nil, DBM_COMMON_L.HEALER_ICON, true) -- REVIEW! ~5s variance [15-20.42]; there was one 11.7! Same as above?? Added "keep" arg (10N Icecrown 2022/08/25 || 25H Lordaeron 2022/09/04 || 25N Lordaeron 2023/02/10 || 25H Lordaeron [2023-08-23]@[20:27:43]) - 19.2, 15.5, 15.7, 17.7, 18.1, 15.7, 16.9, 19.5, 15.3, 19.5, 18.5, 15.2, 19.9 || 15.1, 19.4, 19.0, 15.4, 15.0, 16.8, 19.1, 15.9, 17.1 || 11.7, 16.4, 16.5, 17.4, 19.6, 19.0, 16.5, 16.9, 15.5, 16.4, 17.5 || pull:15.5, 18.5, 17.3, 19.4, 19.7, 20.4, 17.0, 17.0, 15.0
-local timerBloodNova		= mod:NewCDTimer(20, 72378, nil, nil, nil, 2, nil, nil, true) -- 5s variance [20-25]. Added "keep" arg (10N Icecrown 2022/08/25 || 25H Lordaeron 2022/09/04) - 21.7, 21.7, 20.9, 22.6, 20.2, 24.8, 24.6, 20.7, 22.2, 22.4 || 24.9, 21.8, 21.0, 22.8, 23.2, 24.3, 22.2
+local timerRuneofBlood		= mod:NewNextTimer(20, 72410, nil, "Tank|Healer", nil, 5, nil, DBM_COMMON_L.TANK_ICON) -- REVIEW! HC -> wipe -> N different script? First two timers stopped being fixed?
+local timerBoilingBlood		= mod:NewCDTimer(15, 72385, nil, "Healer", nil, 5, nil, DBM_COMMON_L.HEALER_ICON, true) -- REVIEW! ~5s variance [15-20.42]; there was one 11.7! Same as above?? Added "keep" arg
+local timerBloodNova		= mod:NewCDTimer(20, 72378, nil, nil, nil, 2, nil, nil, true) -- 5s variance [20-25]. Added "keep" arg
 
---local soundSpecWarnMark		= mod:NewSound(72293, nil, canShadowmeld or canVanish)
+local soundSpecWarnMark		= mod:NewSound(72293, nil, canShadowmeld or canVanish)
 
 mod:AddRangeFrameOption(12, 72378, "Ranged")
 mod:AddInfoFrameOption(72370, false)--Off by default, since you can literally just watch the bosses power bar
@@ -100,7 +99,7 @@ do	-- add the additional Rune Power Bar
 	end
 end
 
---[[function mod:FallenMarkTarget(targetname)
+function mod:FallenMarkTarget(targetname)
 	if not targetname then return end
 	if targetname == UnitName("player") then
 		if canShadowmeld then
@@ -109,7 +108,7 @@ end
 			soundSpecWarnMark:Play("Interface\\AddOns\\DBM-Core\\sounds\\PlayerAbilities\\Vanish.ogg")
 		end
 	end
-end]]
+end
 
 function mod:OnCombatStart(delay)
 	if self.Options.RunePowerFrame then
@@ -122,11 +121,11 @@ function mod:OnCombatStart(delay)
 	else
 		enrageTimer:Start(360-delay)
 	end
-	timerCallBloodBeast:Start(30-delay)
+	timerCallBloodBeast:Start(30-delay) -- Fixed timer: 30s
 	warnAddsSoon:Schedule(30-delay)
-	timerBloodNova:Start(17-delay) -- (10N Icecrown 2022/08/25 || 10H Lordaeron 2022/09/02 || 25H Lordaeron 2022/09/04 || 25H Lordaeron 2023/02/10 18:54:04 || 25H Lordaeron 2023/02/10 19:02:29 || 25N Lordaeron 2023/02/10 19:10:14) - 17.1 || 17.0 || 17.0 || 17.0 || 17.0 || 20.3
-	timerRuneofBlood:Start(-delay) -- (25H Lordaeron 2023/02/10 18:54:04 || 25H Lordaeron 2023/02/10 19:02:29 || 25N Lordaeron 2023/02/10 19:10:14) - 20.0 || 20.0 || 20.8
-	timerBoilingBlood:Start(15.5-delay) -- (10N Icecrown 2022/08/25 || 10H Lordaeron 2022/09/02 || 25H Lordaeron 2022/09/04 || 25H Lordaeron 2023/02/10 18:54:04 || 25H Lordaeron 2023/02/10 19:02:29 || 25N Lordaeron 2023/02/10 19:10:14) - 15.5 || 15.5|| 15.5 || 15.6 || 15.5 || 19.4
+	timerBloodNova:Start(17-delay) -- Fixed timer: 17s
+	timerRuneofBlood:Start(-delay) -- Fixed timer: 20s
+	timerBoilingBlood:Start(15.5-delay) -- Fixed timer: 15.5s
 	self.vb.warned_preFrenzy = false
 	self.vb.boilingBloodIcon = 1
 	self.vb.beastIcon = 8
@@ -155,8 +154,8 @@ function mod:SPELL_CAST_START(args)
 	if args:IsSpellID(73058, 72378) then	-- Blood Nova (only 2 cast IDs, 4 spell damage IDs, and one dummy)
 		warnBloodNova:Show()
 		timerBloodNova:Start()
---	elseif args.spellId == 72293 then
---		self:BossTargetScanner(37813, "FallenMarkTarget", 0.01, 10)
+	elseif args.spellId == 72293 then
+		self:BossTargetScanner(37813, "FallenMarkTarget", 0.01, 10)
 	end
 end
 
