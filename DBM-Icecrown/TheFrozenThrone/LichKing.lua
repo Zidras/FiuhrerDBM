@@ -3,11 +3,12 @@ local L		= mod:GetLocalizedStrings()
 
 local UnitGUID, UnitName, GetSpellInfo = UnitGUID, UnitName, GetSpellInfo
 local UnitInRange, UnitIsUnit, UnitInVehicle, IsInRaid = UnitInRange, UnitIsUnit, UnitInVehicle, DBM.IsInRaid
+local sformat = string.format
 
-mod:SetRevision("20250729203153")
+mod:SetRevision("20250729231700")
 mod:SetCreatureID(36597)
 mod:SetUsedIcons(1, 2, 3, 4, 5, 6, 7)
-mod:SetHotfixNoticeRev(20250414000000)
+mod:SetHotfixNoticeRev(20250723000000)
 mod:SetMinSyncRevision(20220921000000)
 
 mod:RegisterCombat("combat")
@@ -17,10 +18,8 @@ mod:RegisterEvents(
 )
 
 mod:RegisterEventsInCombat(
-	"SPELL_CAST_START 68981 74270 74271 74272 72259 74273 74274 74275 72143 72146 72147 72148 72262 70358 70498 70541 73779 73780 73781 72762 73539 73650 72350 69242 73800 73801 73802", -- Split into CLEU specific and UNIT_SPELLCAST_START
---	"SPELL_CAST_START 72143 72146 72147 72148 73650 69242 73800 73801 73802", -- CLEU specific
-	"SPELL_CAST_SUCCESS 70337 73912 73913 73914 69409 73797 73798 73799 69200 68980 74325 74326 74327 73654 74295 74296 74297", -- Split into CLEU relevant and UNIT_SPELLCAST_SUCCEEDED. Most were kept since they rely on CLEU payload
---	"SPELL_CAST_SUCCESS 70337 73912 73913 73914 69409 73797 73798 73799 69200 68980 74325 74326 74327", -- CLEU relevant
+	"SPELL_CAST_START 68981 74270 74271 74272 72259 74273 74274 74275 72143 72146 72147 72148 72262 70358 70498 70541 73779 73780 73781 72762 73539 73650 72350 69242 73800 73801 73802",
+	"SPELL_CAST_SUCCESS 70337 73912 73913 73914 69409 73797 73798 73799 69200 68980 74325 74326 74327 73654 74295 74296 74297 69037 74361",
 	"SPELL_DISPEL",
 	"SPELL_AURA_APPLIED 28747 72754 73708 73709 73710", -- 73650 commented out, no longer needed
 	"SPELL_AURA_APPLIED_DOSE 70338 73785 73786 73787",
@@ -28,12 +27,10 @@ mod:RegisterEventsInCombat(
 	"SPELL_SUMMON 69037 70372",
 	"SPELL_DAMAGE 68983 73791 73792 73793",
 	"SPELL_MISSED 68983 73791 73792 73793",
+	"CHAT_MSG_RAID_BOSS_EMOTE",
 	"UNIT_HEALTH target focus",
 	"UNIT_AURA_UNFILTERED",
-	"UNIT_DIED",
---	"UNIT_SPELLCAST_START boss1",
-	"UNIT_SPELLCAST_SUCCEEDED" -- unfiltered as of 14/04/2025, since Warmane broke boss1 units
---	"UNIT_SPELLCAST_SUCCEEDED boss1"
+	"UNIT_DIED"
 )
 
 -- switching to faster less cpu wasting UNIT_TARGET scanning method is not reliable, since this event only fires for LK if is target/focus. Such approach would require syncs to minimize risk of not catching the mechanic, with the downside of the performance gain being questionable
@@ -63,11 +60,9 @@ mod:RegisterEventsInCombat(
 -- "<529.70 21:17:12> [DBM_Announce] Defile on >player4<:Interface\\Icons\\Ability_Rogue_EnvelopingShadows:target:72762:LichKing:false:", -- [42826]
 -- "<529.70 21:17:12> [DBM_Debug] BossTargetScanner has ended for 36597:2:", -- [42827]
 
-local myRealm = select(3, DBM:GetMyPlayerInfo())
-
 -- General
 local timerCombatStart		= mod:NewCombatTimer(55)
-local berserkTimer			= mod:NewBerserkTimer(myRealm == "Lordaeron" and mod:IsNormal() and 720 or 900)
+local berserkTimer			= mod:NewBerserkTimer(900)
 
 mod:AddBoolOption("RemoveImmunes")
 mod:AddMiscLine(L.FrameGUIDesc)
@@ -100,13 +95,13 @@ local specWarnTrapNear				= mod:NewSpecialWarningClose(73539, nil, nil, nil, 3, 
 local specWarnEnrage				= mod:NewSpecialWarningSpell(72143, "Tank")
 local specWarnEnrageLow				= mod:NewSpecialWarningSpell(28747, false)
 
-local timerInfestCD					= mod:NewCDCountTimer(21.2, 70541, nil, "Healer|RaidCooldown", nil, 5, nil, DBM_COMMON_L.HEALER_ICON, true) -- 4s variance [21-25] Added "keep" arg. (10N Icecrown 2022/08/25 || 25H Lordaeron 2022/09/03) - 23.1, 22.9, 22.8, Stage 2/84.3, 12.4/96.8, 23.6, 22.2, 21.7, 22.1, 22.7, 22.0, 23.5, 22.0 || 23.0, 21.2, 24.5, 22.8, 22.1, Stage 2/72.4, 12.5/84.9, 22.1, 21.2, 23.9, 23.3, 22.7, 23.1, 22.9, 23.5 ; 22.6, 21.2, 24.8, 22.9, 22.5, Stage 2/72.4, 12.5/84.9, 21.3, 21.6, 22.4, 21.5
+local timerInfestCD					= mod:NewVarCountTimer("v21-24.1", 70541, nil, "Healer|RaidCooldown", nil, 5, nil, DBM_COMMON_L.HEALER_ICON, true) -- ~3s variance [21.05-24.10]. SPELL_CAST_START: (Aura 3.3.5: 25H [2025-07-23]@[11:02:02] || 25H [2025-07-24]@[10:58:24] || 25H [2025-07-24]@[11:14:31]) - "Infestar-73781-npc:36597-7800691 = pull:7.33, 23.60, 21.62, 21.74, 21.87, 87.27, 21.59, 23.52, 21.36, 21.68, 23.18, 23.63, 23.98" || 	"Infestar-73781-npc:36597-10363499 = pull:5.08/[Stage 1/0.00] 5.08, 23.29, 21.29, 24.10, 22.62, 21.15, Stage 1.5/21.70, Stage 2/62.53, 7.45/69.98/91.67, 22.39, 22.88, 22.86, 21.70, 22.31, 21.39, 22.54, Stage 2.5/14.94, Stage 3/62.46, Left Frostmourne/59.50, Left Frostmourne/104.39" || "Infestar-73781-npc:36597-10363499 = pull:4.92/[Stage 1/0.00] 4.92, 22.15, 22.99, 23.70, 23.18, 21.05, Stage 1.5/10.28, Stage 2/62.43, 7.48/69.91/80.19, 23.27, 23.67, 22.79, 21.61, 22.95, 23.77, 22.47, 22.43, 23.97, Stage 2.5/10.32, Stage 3/62.41, Left Frostmourne/59.75, Left Frostmourne/109.96, Left Frostmourne/101.56, Left Frostmourne/108.75, Left Frostmourne/108.73"
 local timerNecroticPlagueCleanse	= mod:NewTimer(5, "TimerNecroticPlagueCleanse", 70337, "Healer", nil, 5, DBM_COMMON_L.HEALER_ICON, nil, nil, nil, nil, nil, nil, 70337)
-local timerNecroticPlagueCD			= mod:NewCDTimer(30, 70337, nil, nil, nil, 3, nil, DBM_COMMON_L.DISEASE_ICON, true) -- 3s variance [30.1-32.9] Added "keep" arg. (10N Icecrown 2022/08/20 || 10N Icecrown 2022/08/25 || 25H Lordaeron 2022/09/03) - 32.8, 31.6 ; 32.7 ; 31.2;  31.7, 32.7 || 30.2 || 32.3, 32.9 ; 31.3, 31.9 ; 32.9, 30.4 ; 30.7, 31.7 ; 30.1, 30.2 ; 32.6, 31.2 ; 31.1 ; 32.5, 30.3, 31.7
-local timerEnrageCD					= mod:NewCDCountTimer("d20", 72143, nil, "Tank|RemoveEnrage", nil, 5, nil, DBM_COMMON_L.ENRAGE_ICON--[[, true]]) -- String timer starting with "d" means "allowDouble". 5s variance [20.1-24.7]. Disabled "keep" arg since cast can be stun-skipped. (25H Lordaeron 2022/09/03) - 20.5, 24.7
-local timerShamblingHorror			= mod:NewNextTimer(60, 70372, nil, nil, nil, 1)
-local timerDrudgeGhouls				= mod:NewNextTimer(30, 70358, nil, nil, nil, 1)
-local timerTrapCD					= mod:NewNextTimer(15.5, 73539, nil, nil, nil, 3, nil, DBM_COMMON_L.DEADLY_ICON, nil, 1, 4) -- Fixed timer, confirmed on log review 2022/09/03
+local timerNecroticPlagueCD			= mod:NewVarTimer("v30-32.67", 70337, nil, nil, nil, 3, nil, DBM_COMMON_L.DISEASE_ICON, true) -- ~3s variance [29.96-32.67]. SPELL_CAST_SUCCESS: (Aura 3.3.5: 25H [2025-07-23]@[11:02:02] || 25H [2025-07-24]@[10:58:24] || 25H [2025-07-24]@[11:14:31]) - "Peste necrótica-73914-npc:36597-7800691 = pull:10.36, 31.95, 31.39, 32.67" || "Peste necrótica-73914-npc:36597-10363499 = pull:31.66/[Stage 1/0.00] 31.66, 60.98, 30.80 || "Peste necrótica-73914-npc:36597-10363499 = pull:29.96/[Stage 1/0.00] 29.96, 30.17, 31.07, 31.06
+local timerEnrageCD					= mod:NewCDCountTimer("dv20-25", 72143, nil, "Tank|RemoveEnrage", nil, 5, nil, DBM_COMMON_L.ENRAGE_ICON) -- String timer starting with "d" means "allowDouble". 5s variance [20.14-24.79]. Cast can be stun-skipped. SPELL_CAST_START: (Aura 3.3.5: 25H [2025-07-23]@[11:02:02] || 25H [2025-07-24]@[10:58:24] || 25H [2025-07-24]@[11:14:31]) - "Enfurecer-72148-npc:37698-7807834 = pull:12.78, 20.99, 23.83" || "Enfurecer-72148-npc:37698-10368537 = pull:34.44/[Stage 1/0.00] 34.44, 21.64, 22.96, 23.92, 20.14 ; "Enfurecer-72148-npc:37698-10371026 = pull:94.66/[Stage 1/0.00] 94.66, 24.69 || "Enfurecer-72148-npc:37698-10392671 = pull:33.19/[Stage 1/0.00] 33.19, 21.62, 24.09, 20.26, 24.01 ; "Enfurecer-72148-npc:37698-10393695 = pull:93.91/[Stage 1/0.00] 93.91, 24.79
+local timerShamblingHorror			= mod:NewNextTimer(60, 70372, nil, nil, nil, 1) -- Initial timer: 20s, then fixed timer: 60s. SPELL_CAST_START: (Aura 3.3.5: 25H [2025-07-24]@[10:58:24] || 25H [2025-07-24]@[11:14:31]) - "Invocar horror desgarbado-70372-npc:36597-10363499 = pull:20.03/[Stage 1/0.00] 20.03, 60.10 || "Invocar horror desgarbado-70372-npc:36597-10363499 = pull:19.94/[Stage 1/0.00] 19.94, 59.99"
+local timerDrudgeGhouls				= mod:NewNextTimer(30, 70358, nil, nil, nil, 1) -- Initial timer: 10s, then fixed timer: 30s. SPELL_CAST_START: (Aura 3.3.5: 25H [2025-07-24]@[10:58:24]) - "Invocar braceros necrófagos-70358-npc:36597-10363499 = pull:10.08/[Stage 1/0.00] 10.08, 30.02, 30.06, 30.10, 30.04
+local timerTrapCD					= mod:NewNextTimer(15.5, 73539, nil, nil, nil, 3, nil, DBM_COMMON_L.DEADLY_ICON, nil, 1, 4) -- Fixed timer: 15.5s. SPELL_CAST_START: (Aura 3.3.5: 25H [2025-07-23]@[11:02:02] || 25H [2025-07-24]@[10:58:24]) - "Invocar trampa de las Sombras-73539-npc:36597-7800691 = pull:9.47, 15.57, 15.50, 15.56, 15.52, 15.51, 15.54 || "Invocar trampa de las Sombras-73539-npc:36597-10363499 = pull:15.50/[Stage 1/0.00] 15.50, 15.53, 15.60, 15.66, 15.50, 15.53, 15.56, 15.49"
 
 local soundInfestSoon				= mod:NewSoundSoon(70541, nil, "Healer|RaidCooldown")
 local soundNecroticOnYou			= mod:NewSoundYou(70337)
@@ -135,9 +130,9 @@ local specWarnSoulreaperOtr			= mod:NewSpecialWarningTaunt(69409, false, nil, ni
 local specWarnValkyrLow				= mod:NewSpecialWarning("SpecWarnValkyrLow", nil, nil, nil, 1, 2, nil, 71844, 69037)
 
 local timerSoulreaper				= mod:NewTargetTimer(5.1, 69409, nil, "Tank|Healer|TargetedCooldown")
-local timerSoulreaperCD				= mod:NewCDCountTimer(30.5, 69409, nil, "Tank|Healer|TargetedCooldown", nil, 5, nil, DBM_COMMON_L.TANK_ICON)
-local timerDefileCD					= mod:NewCDCountTimer(32, 72762, nil, nil, nil, 3, nil, DBM_COMMON_L.DEADLY_ICON, true, 1, 4) -- REVIEW! ~3s variance [32-34.7]. Added "keep" arg, but might need sync for Normal Harvest Soul since CLEU could be OOR - need Normal log from a harvested soul - (25H Lordaeron 2022/09/26_wipe1 || 25H Lordaeron 2022/09/26_wipe2 || 25H Lordaeron 2022/09/26_wipe3 || 25H Lordaeron 2022/09/26_wipe4 || 25H Lordaeron 2022/09/26_wipe5 || 25H Lordaeron 2022/09/26_wipe6 || 10N Lordaeron 2022/10/08) - 33.8, 34.2, 32.3, 34.0, 32.8 || 32.4, 34.5, 33.6, 34.4, 33.7 || 33.4, 32.1, 33.0, 32.5, 33.5, 33.3, 33.5 || 33.6, 33.4, 33.0 || Stage 2/37.5, 32.2, 32.0, 33.0, 33.5, 32.1, 32.1, 33.4, Stage 2.5/25.8, Stage 3/62.5, 64.0/126.6/152.4, 32.7, 73.6, 32.6, 74.5 || 32.6, 34.7, 32.5, 34.2, 33.7 || Stage 2/37.5, 32.1, 32.8, Stage 2.5/24.2, Stage 3/62.5, 32.9/95.5/119.6, 32.7, 32.7, 32.9
-local timerSummonValkyr				= mod:NewCDCountTimer(45.2, 69037, nil, nil, nil, 1, 71844, DBM_COMMON_L.DAMAGE_ICON, true, 2, 3) -- 5s variance [45-50]. Added "keep" arg (25H Lordaeron 2022/09/21_wipe1 || 25H Lordaeron 2022/09/21_wipe2 || 25H Lordaeron 2022/09/21_kill) - 46.5, 47.1, 45.2 || 50.0, 46.8, 46.2 || 47.8, 48.1, 47.8
+local timerSoulreaperCD				= mod:NewVarCountTimer("v34.16-35.85", 69409, nil, "Tank|Healer|TargetedCooldown", nil, 5, nil, DBM_COMMON_L.TANK_ICON, true) -- ~2s variance [34.16-35.85]. Added "keep" arg since one log skipped one of the casts (Aura 3.3.5: 25H [2025-07-23]@[11:02:02] || 25H [2025-07-24]@[10:58:24] || 25H [2025-07-24]@[11:14:31]) - "Segador de almas-73799-npc:36597-7800691 = pull:207.53, 34.16, 35.85, 34.88, 290.78, 34.39" || "Segador de almas-73799-npc:36597-10363499 = pull:233.74/[Stage 1/0.00, Stage 1.5/139.24, Stage 2/62.53] 31.98/94.50/233.74, 33.53, 34.80, 34.50, 34.65, Stage 2.5/9.02, Stage 3/62.46, Left Frostmourne/59.50, 43.04/102.53/164.99/174.02, Left Frostmourne/61.35, 8.72/70.07, 33.13" || "Segador de almas-73799-npc:36597-10363499 = pull:223.53/[Stage 1/0.00, Stage 1.5/128.28, Stage 2/62.43] 32.82/95.25/223.53, 34.03, 67.85, 35.34, 35.02, Stage 2.5/19.68, Stage 3/62.41, Left Frostmourne/59.75, 43.06/102.81/165.23/184.91, Left Frostmourne/66.90, 8.66/75.56, 33.07, Left Frostmourne/59.83, Left Frostmourne/108.75, 11.48/120.24/180.07, 33.96, Left Frostmourne/63.29"
+local timerDefileCD					= mod:NewVarCountTimer("v32.35-35.7", 72762, nil, nil, nil, 3, nil, DBM_COMMON_L.DEADLY_ICON, true, 1, 4) -- ~3s variance [32.35-35.7]. Added "keep" arg, but might need sync for Normal Harvest Soul since CLEU could be OOR - need Normal log from a harvested soul. Don't use SPELL_CAST_START, use EMOTE instead! SCS is logged for first 3 logs, EMOTE is shown on 3rd for comparison: (Aura 3.3.5: 25H [2025-07-23]@[11:02:02] || 25H [2025-07-24]@[10:58:24] || 25H [2025-07-24]@[11:14:31]) - "Profanar-72762-npc:36597-7800691 = pull:210.50, 64.94, 33.32, 35.70, 141.67, 34.20, 74.53, 34.79, 69.54, 32.35" || "Profanar-72762-npc:36597-10363499 = pull:236.18/[Stage 1/0.00, Stage 1.5/139.24, Stage 2/62.53] 34.42/96.95/236.18, 33.01, 33.99, 34.81, 33.81, Stage 2.5/8.44, Stage 3/62.46, Left Frostmourne/59.50, 34.16/93.66/156.12/164.56, Left Frostmourne/70.23, 36.98/107.20" || "Profanar-72762-npc:36597-10363499 = pull:225.27/[Stage 1/0.00, Stage 1.5/128.28, Stage 2/62.43] 34.55/96.98/225.27, 32.52, 33.89, 34.05, 35.01, 32.89, Stage 2.5/21.80, Stage 3/62.41, Left Frostmourne/59.75, 1.33/61.08/123.50/145.30, 32.51, Left Frostmourne/76.12, 1.41/77.53, 34.82, Left Frostmourne/65.34, 33.64/98.98, Left Frostmourne/75.11, 1.49/76.60, 33.95, Left Frostmourne/73.30, 1.51/74.81" ; "?-¡%s comienza a lanzar Profanar!-npc:El Rey Exánime = pull:225.27/[Stage 1/0.00, Stage 1.5/128.28, Stage 2/62.43] 34.55/96.98/225.27, 32.52, 33.89, 34.05, 35.01, 32.89, Stage 2.5/21.81, Stage 3/62.41, Left Frostmourne/59.75, 1.33/61.08/123.50/145.30, 32.51, Left Frostmourne/76.13, 1.40/77.53, 34.82, Left Frostmourne/65.34, 1.39/66.73, 32.25, Left Frostmourne/75.11, 1.48/76.59, 33.95, Left Frostmourne/73.30, 1.51/74.81"
+local timerSummonValkyr				= mod:NewVarCountTimer("v45-50", 69037, nil, nil, nil, 1, 71844, DBM_COMMON_L.DAMAGE_ICON, true, 2, 3) -- 5s variance [45-50]. Added "keep" arg. (Aura 3.3.5: 25H [2025-07-23]@[11:02:02]) - "Invocar Val'kyr-69037-npc:36597-7800691 = pull:191.48, 49.69, 47.92, 46.65"
 
 local soundDefileOnYou				= mod:NewSoundYou(72762)
 local soundSoulReaperSoon			= mod:NewSoundSoon(69409, nil, "Tank|Healer|TargetedCooldown")
@@ -178,9 +173,9 @@ local specWarnRagingSpirit			= mod:NewSpecialWarningYou(69200, nil, nil, nil, 1,
 local specWarnIceSpheresYou			= mod:NewSpecialWarningMoveAway(69103, nil, 69090, nil, 1, 2) -- shortText "Ice Sphere"
 local specWarnGTFO					= mod:NewSpecialWarningGTFO(68983, nil, nil, nil, 1, 8)
 
-local timerPhaseTransition			= mod:NewTimer(62.5, "PhaseTransition", 72262, nil, nil, 6)
-local timerRagingSpiritCD			= mod:NewNextCountTimer(20, 69200, nil, nil, nil, 1)
-local timerSoulShriekCD				= mod:NewCDTimer(12, 69242, nil, nil, nil, 1)
+local timerPhaseTransition			= mod:NewTimer(62.5, "PhaseTransition", 72262, nil, nil, 6) -- Fixed timer: 62.5s
+local timerRagingSpiritCD			= mod:NewVarCountTimer("v22.13-23.11", 69200, nil, nil, nil, 1) -- 1s variance [22.13-23.11] SPELL_CAST_SUCCESS: (Aura 3.3.5: 25H [2025-07-23]@[11:02:02] || 25H [2025-07-24]@[10:58:24] || 25H [2025-07-24]@[11:14:31]) - "Espíritu enfurecido-69200-npc:36597-7800691 = pull:116.50, 23.05, 22.98, 204.92, 23.07, 22.13" || "Espíritu enfurecido-69200-npc:36597-10363499 = pull:142.17/[Stage 1/0.00, Stage 1.5/139.24] 2.94/142.17, 22.58, 22.48, Stage 2/14.53, Stage 2.5/178.47, 4.95/183.42/197.96, 22.24, 23.11, Stage 3/12.16 || "Espíritu enfurecido-69200-npc:36597-10363499 = pull:131.23/[Stage 1/0.00, Stage 1.5/128.28] 2.94/131.23, 22.92, 22.47, Stage 2/14.10, Stage 2.5/224.72, 4.95/229.68/243.77, 22.68, 22.63, Stage 3/12.16
+local timerSoulShriekCD				= mod:NewCDTimer(14.81, 69242, nil, nil, nil, 1) -- (Aura 3.3.5: 25H [2025-07-24]@[11:14:31]) - "Chillido de alma-73802-npc:36701-10402308 = pull:433.21/[Stage 1/0.00, Stage 1.5/128.28, Stage 2/62.43, Stage 2.5/224.72] 17.77/242.50/304.93/433.21, 14.81"
 
 mod:AddRangeFrameOption(8, 72133)
 mod:AddSetIconOption("RagingSpiritIcon", 69200, false, 0, {6})
@@ -279,22 +274,22 @@ local function NextPhase(self, delay)
 		if self:IsHeroic() then
 			timerTrapCD:Start(-delay)
 		end
-		timerNecroticPlagueCD:Start(-delay) -- no difference between N and H. (10N Icecrown 2022/08/20 || 10N Icecrown 2022/08/25 || 25H Lordaeron 2022/09/03) - 31.1; 32.6 || 31.6 || 30.7; 32.1; 31.0; 32.7; 30.4; 31.7; 31.5; 32.8; 30.8
-		timerInfestCD:Start(5.0-delay, self.vb.infestCount+1) -- Fixed timer, confirmed on log review 2022/09/03
+		timerNecroticPlagueCD:Start(-delay) -- no difference between N and H.
+		timerInfestCD:Start(sformat("v%s-%s", 4.92-delay, 5.08-delay), self.vb.infestCount+1) -- ~1s variance [4.92-5.08].
 	elseif self.vb.phase == 2 then
 		warnPhase2:Show()
 		warnPhase2:Play("ptwo")
 		if self.Options.ShowFrame then
 			self:CreateFrame()
 		end
-		timerSummonValkyr:Start(17, self.vb.valkyrWaveCount+1) -- (25H Lordaeron 2022/09/21_wipe1 || 25H Lordaeron 2022/09/21_wipe2 || 25H Lordaeron 2022/09/21_kill || 25H Lordaeron 2022/09/26_wipe3 || 25H Lordaeron 2022/09/26_wipe6) - 17.5 || 17.5 || 17.4 || 17.3 || 17.0
-		timerSoulreaperCD:Start(40, self.vb.soulReaperCount+1)
-		soundSoulReaperSoon:Schedule(40-2.5, "Interface\\AddOns\\DBM-Core\\sounds\\RaidAbilities\\soulreaperSoon.mp3")
-		timerDefileCD:Start(37.5, self.vb.defileCount+1)
-		timerInfestCD:Start(12.2, self.vb.infestCount+1) -- 0.3s variance [12.2-12.5] (10N Icecrown 2022/08/25 || 25H Lordaeron 2022/09/03) - 12.4 || 12.5; 12.5; 12.5; 12.2; 12.5; 12.5; 12.5
-		soundInfestSoon:Schedule(12.2-2, "Interface\\AddOns\\DBM-Core\\sounds\\RaidAbilities\\infestSoon.mp3")
-		warnDefileSoon:Schedule(33, self.vb.defileCount+1)
-		warnDefileSoon:ScheduleVoice(33, "scatter") -- Voice Pack - Scatter.ogg: "Spread!"
+		timerSummonValkyr:Start(15.5, self.vb.valkyrWaveCount+1) -- REVIEW! Fixed timer? (Aura 3.3.5: 25H [2025-07-23]@[11:02:02]) - 15.5
+		timerSoulreaperCD:Start(31.6, self.vb.soulReaperCount+1) -- REVIEW! Fixed timer? (Aura 3.3.5: 25H [2025-07-23]@[11:02:02]) - 31.6
+		soundSoulReaperSoon:Schedule(31.6-2.5, "Interface\\AddOns\\DBM-Core\\sounds\\RaidAbilities\\soulreaperSoon.mp3")
+		timerDefileCD:Start("v34.42-34.57", self.vb.defileCount+1) -- ~0.2s variance (Aura 3.3.5: 25H [2025-07-23]@[11:02:02] || 25H [2025-07-24]@[10:58:24] || 25H [2025-07-24]@[11:14:31]) - 34.57 || 34.42 || 34.55
+		timerInfestCD:Start(7.5, self.vb.infestCount+1) -- REVIEW! Fixed timer? (Aura 3.3.5: 25H [2025-07-23]@[11:02:02]) - 7.5
+		soundInfestSoon:Schedule(7.5-2, "Interface\\AddOns\\DBM-Core\\sounds\\RaidAbilities\\infestSoon.mp3")
+		warnDefileSoon:Schedule(34.57-5, self.vb.defileCount+1)
+		warnDefileSoon:ScheduleVoice(34.57-5, "scatter") -- Voice Pack - Scatter.ogg: "Spread!"
 		self:RegisterShortTermEvents(
 			"UNIT_ENTERING_VEHICLE",
 			"UNIT_EXITING_VEHICLE"
@@ -305,10 +300,11 @@ local function NextPhase(self, delay)
 		timerVileSpirit:Start(17)
 		timerSoulreaperCD:Start(37.5, self.vb.soulReaperCount+1)
 		soundSoulReaperSoon:Schedule(37.5-2.5, "Interface\\AddOns\\DBM-Core\\sounds\\RaidAbilities\\soulreaperSoon.mp3")
-		timerDefileCD:Start(nil, self.vb.defileCount+1)
+		timerDefileCD:Start(nil, self.vb.defileCount+1) -- REVIEW! Need Normal log
 		warnDefileSoon:Schedule(32-5, self.vb.defileCount+1)
 		warnDefileSoon:ScheduleVoice(32-5, "scatter")
-		timerHarvestSoulCD:Start(13.6) -- REVIEW! variance? (25H Lordaeron 2022/10/21 || 25H Lordaeron 2022/11/16) - 13.6 || 14.0
+		timerHarvestSoulCD:Start(11.1) -- (Aura 3.3.5: 25H [2025-07-24]@[10:58:24] || 25H [2025-07-24]@[11:14:31]) - "Recolectar almas-74297-npc:36597-10363499 = 11.07 || 11.17
+
 --		if self:IsHeroic() then
 --			self:RegisterShortTermEvents(
 --				"ZONE_CHANGED"
@@ -320,13 +316,13 @@ end
 local function leftFrostmourne(self)
 	DBM:Debug("Left Frostmourne")
 	DBM:AddSpecialEventToTranscriptorLog("Left Frostmourne")
-	timerHarvestSoulCD:Start(58.72) -- Subtract [58.72]s from Exit FM to next CAST_SUCCESS diff. Timestamps: Harvest cast success > Enter Frostmourne (SAA 73655) > Exit FM (SAR 73655) > Harvest cast. (25H Lordaeron [2023-08-23]@[22:14:48]) - "Harvest Souls-74297-npc:36597-3706 = pull:452.4/Stage 3/14.0, 107.3, 107.2" => '107.3 calculation as follows': 452.42 > 458.44 [6.02] > 500.97 [42.53/48.55] > 559.69 [58.72/101.25/107.27]
-	timerDefileCD:Start(1.5, self.vb.defileCount+1) -- As soon as the group leaves FM
+	timerHarvestSoulCD:Start("v53-61.41") -- ~8s variance [53.00-61.41]. SPELL_CAST_SUCCESS: (Aura 3.3.5: 25H [2025-07-24]@[10:58:24] || 25H [2025-07-24]@[11:14:31]) - "Recolectar almas-74297-npc:36597-10363499 = pull:453.77/[Stage 1/0.00, Stage 1.5/139.24, Stage 2/62.53, Stage 2.5/178.47, Stage 3/62.46] 11.07/73.54/252.01/314.54/453.77, Left Frostmourne/48.42, 56.07/104.49, Left Frostmourne/48.32, 58.12/106.43" || "Recolectar almas-74297-npc:36597-10363499 = pull:489.02/[Stage 1/0.00, Stage 1.5/128.28, Stage 2/62.43, Stage 2.5/224.72, Stage 3/62.41] 11.17/73.58/298.30/360.74/489.02, Left Frostmourne/48.59, 61.41/109.99, Left Frostmourne/48.55, 53.00/101.55, Left Frostmourne/48.56, 60.29/108.86, Left Frostmourne/48.46, 60.26/108.72, Left Frostmourne/48.47"
+	timerDefileCD:Start(1.3, self.vb.defileCount+1) -- As soon as the group leaves FM.
 	warnDefileSoon:Show(self.vb.defileCount+1)
 	warnDefileSoon:Play("scatter") -- Voice Pack - Scatter.ogg: "Spread!"
 	timerSoulreaperCD:Start(3.5, self.vb.soulReaperCount+1) -- After Defile cast (+2s)
 	soundSoulReaperSoon:Schedule(3.5-2.5, "Interface\\AddOns\\DBM-Core\\sounds\\RaidAbilities\\soulreaperSoon.mp3")
-	timerVileSpirit:Start(7.81) -- (25H Lordaeron [2023-09-13]@[22:13:36]) - "Vile Spirits-70498-npc:36597-4244 = pull:518.95/Left Frostmourne/7.81, 40.11, Left Frostmourne/59.17, 7.81/66.98, 39.97, Left Frostmourne/59.45"
+	timerVileSpirit:Start(18) -- REVIEW! Unknown script. SPELL_CAST_START: (Aura 3.3.5: 25H [2025-07-24]@[10:58:24] || 25H [2025-07-24]@[11:14:31]) - "Espíritus malvados-70498-npc:36597-10363499 = pull:549.74/[Stage 1/0.00, Stage 1.5/139.24, Stage 2/62.53, Stage 2.5/178.47, Stage 3/62.46, Left Frostmourne/59.50] 47.55/107.04/169.50/347.98/410.50/549.74, Left Frostmourne/56.84, 31.33/88.17" || "Espíritus malvados-70498-npc:36597-10363499 = pull:581.03/[Stage 1/0.00, Stage 1.5/128.28, Stage 2/62.43, Stage 2.5/224.72, Stage 3/62.41, Left Frostmourne/59.75] 43.42/103.17/165.59/390.31/452.74/581.03, Left Frostmourne/66.54, 18.85/85.39, Left Frostmourne/82.71, 41.65/124.36, Left Frostmourne/67.11, 18.00/85.11, 36.35, Left Frostmourne/54.39"
 end
 
 local function RestoreWipeTime(self)
@@ -410,10 +406,10 @@ function mod:SPELL_CAST_START(args)
 		self.vb.ragingSpiritCount = 1
 		warnRemorselessWinter:Show()
 		timerPhaseTransition:Start()
-		if self.vb.phase == 1.5 then
-			timerRagingSpiritCD:Start(6, self.vb.ragingSpiritCount) -- Fixed timer, confirmed after log review 2022/09/26: 6.0 for first intermission
+		if self.vb.phase == 1.5 then -- Fixed timers. SPELL_CAST_SUCCESS: (Aura 3.3.5: 25H [2025-07-24]@[10:58:24] || 25H [2025-07-24]@[11:14:31]) - 2.94, Stage 2.5/178.47, 4.95 || 2.94, Stage 2.5/224.72, 4.95
+			timerRagingSpiritCD:Start(2.94, self.vb.ragingSpiritCount)
 		else
-			timerRagingSpiritCD:Start(5, self.vb.ragingSpiritCount) -- Fixed timer, confirmed after log review 2022/09/26: 5.0 for second intermission
+			timerRagingSpiritCD:Start(4.95, self.vb.ragingSpiritCount)
 		end
 		warnShamblingSoon:Cancel()
 		timerShamblingHorror:Cancel()
@@ -468,13 +464,13 @@ function mod:SPELL_CAST_START(args)
 		soundInfestSoon:Cancel()
 		soundInfestSoon:Schedule(22.5-2, "Interface\\AddOns\\DBM-Core\\sounds\\RaidAbilities\\infestSoon.mp3")
 	elseif spellId == 72762 then -- Defile
-		self.vb.defileCount = self.vb.defileCount + 1
+		-- self.vb.defileCount = self.vb.defileCount + 1
 		self:BossTargetScanner(36597, "DefileTarget", 0.02, 15)
-		warnDefileSoon:Cancel()
-		warnDefileSoon:CancelVoice()
-		warnDefileSoon:Schedule(27, self.vb.defileCount+1)
-		warnDefileSoon:ScheduleVoice(27, "scatter")
-		timerDefileCD:Start(nil, self.vb.defileCount+1)
+		-- warnDefileSoon:Cancel()
+		-- warnDefileSoon:CancelVoice()
+		-- warnDefileSoon:Schedule(27, self.vb.defileCount+1)
+		-- warnDefileSoon:ScheduleVoice(27, "scatter")
+		-- timerDefileCD:Start(nil, self.vb.defileCount+1)
 	elseif spellId == 73539 then -- Shadow Trap (Heroic)
 		self:BossTargetScanner(36597, "TrapTarget", 0.02, 10)
 		timerTrapCD:Start()
@@ -526,21 +522,35 @@ function mod:SPELL_CAST_SUCCESS(args)
 		end
 	elseif spellId == 69200 then -- Raging Spirit
 		self.vb.ragingSpiritCount = self.vb.ragingSpiritCount + 1
-		timerSoulShriekCD:Start(20)
+		timerSoulShriekCD:Start(14) -- Diff between SPELL_CAST_START/73802 (Soul Shriek) and SPELL_CAST_SUCCESS/69200 (Raging Spirit). 14.13
 		if args:IsPlayer() then
 			specWarnRagingSpirit:Show()
 			specWarnRagingSpirit:Play("targetyou")
 		else
 			warnRagingSpirit:Show(args.destName)
 		end
-		if self.vb.phase == 1.5 then
-			timerRagingSpiritCD:Start(nil, self.vb.ragingSpiritCount) -- Fixed timer, confirmed after log review 2022/09/03: 20.0 for first intermission
-		else
-			timerRagingSpiritCD:Start(15.0, self.vb.ragingSpiritCount) -- Fixed timer, confirmed after log review 2022/09/03: 15.0 for second intermission
-		end
+--		if self.vb.phase == 1.5 then
+			timerRagingSpiritCD:Start(nil, self.vb.ragingSpiritCount) -- same variant timer for both intermissions
+--		else
+--			timerRagingSpiritCD:Start(15.0, self.vb.ragingSpiritCount)
+--		end
 		if self.Options.RagingSpiritIcon then
 			self:SetIcon(args.destName, 6, 5)
 		end
+	elseif args:IsSpellID(69037, 74361) then -- Summon Val'kyr Periodic (10H, 25H) | Summon Val'kyr (10N, 25N)
+		table.wipe(valkyrTargets)	-- reset valkyr cache for next round
+		grabIcon = 2
+		self.vb.valkIcon = 2
+		self.vb.valkyrWaveCount = self.vb.valkyrWaveCount + 1
+		warnSummonValkyr:Show(self.vb.valkyrWaveCount)
+		timerSummonValkyr:Start(nil, self.vb.valkyrWaveCount+1)
+		-- Schedule a defile (or reschedule it) if next defile event doesn't exist ( now > next defile ) or defile is coming too soon
+-- 		local minTime = self:IsDifficulty("normal25", "heroic25") and 5 or 4
+--		local defileTimerStarted = timerDefileCD:IsStarted() -- REIVEW! I think I do not need this, since GetRemaining will return 0 if no timer is started
+-- 		if --[[not defileTimerStarted or defileTimerStarted and]] timerDefileCD:GetRemaining() < minTime then
+-- 			DBM:Debug("Defile timer adjusted since it was too close to Val'kyr summons")
+-- 			timerDefileCD:Restart(minTime) -- Belongs to EVENT_GROUP_ABILITIES
+-- 		end
 	elseif args:IsSpellID(68980, 74325, 74326, 74327) then -- Harvest Soul
 		timerHarvestSoul:Start(args.destName)
 		timerHarvestSoulCD:Start()
@@ -652,8 +662,8 @@ function mod:SPELL_SUMMON(args)
 		warnShamblingHorror:Show()
 		warnShamblingSoon:Schedule(55)
 		timerShamblingHorror:Start()
-		timerEnrageCD:Start(12.3, shamblingCount, args.destGUID) -- -20s from Shambling Enrage summon. 34.4 || 34.3; 32.3; 33.4
-		timerEnrageCD:Schedule(12.3+2, nil, shamblingCount, args.destGUID) -- apparently on Warmane if you stun on pre-cast, it skips the Enrage. Couldn't repro on test server nor validate it, but doesn't really hurt because SCS has Restart method
+		timerEnrageCD:Start(11.32, shamblingCount, args.destGUID) -- REVIEW! 11.32s from Shambling Enrage summon. summon > enrage [diff]. (Aura 3.3.5: 25H [2025-07-23]@[11:02:02]) - (59.61 summon -> 70.93 scstart [11.32])
+		timerEnrageCD:Schedule(11.32+2, nil, shamblingCount, args.destGUID) -- apparently on Warmane if you stun on pre-cast, it skips the Enrage. Couldn't repro on test server nor validate it, but doesn't really hurt because SCS has Restart method
 	end
 end
 
@@ -686,6 +696,18 @@ function mod:CHAT_MSG_MONSTER_YELL(msg)
 		if self.Options.ShowFrame then
 			self:CreateFrame()
 		end
+	end
+end
+
+function mod:CHAT_MSG_RAID_BOSS_EMOTE(msg)
+	if msg == L.EmoteDefileCast or msg:find(L.EmoteDefileCast) then -- necessary to overcome bug in the server script where boss won't cast Defile (I assume due to running and interrupts internal cast)
+		self.vb.defileCount = self.vb.defileCount + 1
+--		self:BossTargetScanner(36597, "DefileTarget", 0.02, 15) -- This will be deferred to SPELL_CAST_START, since it ensures that boss is indeed casting
+		warnDefileSoon:Cancel()
+		warnDefileSoon:CancelVoice()
+		warnDefileSoon:Schedule(27, self.vb.defileCount+1)
+		warnDefileSoon:ScheduleVoice(27, "scatter")
+		timerDefileCD:Start(nil, self.vb.defileCount+1)
 	end
 end
 
@@ -755,109 +777,6 @@ function mod:UNIT_EXITING_VEHICLE(uId)
 	if valkyrTargets[unitName] then -- on Val'kyr passenger drop, it sometimes fires twice in one second succession, so check cache (AntiSpam was a bit too much for this)
 		valkyrTargets[unitName] = nil
 		self:RemoveEntry(unitName)
-	end
-end
---[[
-function mod:UNIT_SPELLCAST_START(_, spellName)
-	if spellName == GetSpellInfo(68981) then -- Remorseless Winter (phase transition start)
-		self:SetStage(self.vb.phase + 0.5) -- Intermission. Use + 0.5 workaround to differentiate between intermissions.
-		self.vb.ragingSpiritCount = 1
-		warnRemorselessWinter:Show()
-		timerPhaseTransition:Start()
-		if self.vb.phase == 1.5 then
-			timerRagingSpiritCD:Start(6, self.vb.ragingSpiritCount) -- Fixed timer, confirmed after log review 2022/09/26: 6.0 for first intermission
-		else
-			timerRagingSpiritCD:Start(5, self.vb.ragingSpiritCount) -- Fixed timer, confirmed after log review 2022/09/26: 5.0 for second intermission
-		end
-		warnShamblingSoon:Cancel()
-		timerShamblingHorror:Cancel()
-		timerDrudgeGhouls:Cancel()
-		timerSummonValkyr:Cancel()
-		timerInfestCD:Cancel()
-		soundInfestSoon:Cancel()
-		timerNecroticPlagueCD:Cancel()
-		timerTrapCD:Cancel()
-		timerDefileCD:Cancel()
-		warnDefileSoon:Cancel()
-		warnDefileSoon:CancelVoice()
-		timerSoulreaperCD:Cancel()
-		soundSoulReaperSoon:Cancel()
-		self:RegisterShortTermEvents(
-			"UPDATE_MOUSEOVER_UNIT",
-			"UNIT_TARGET_UNFILTERED"
-		)
-		self:DestroyFrame()
-		if self.Options.RangeFrame then
-			DBM.RangeCheck:Show(8)
-		end
-	elseif spellName == GetSpellInfo(72262) then -- Quake (phase transition end)
-		self.vb.ragingSpiritCount = 0
-		warnQuake:Show()
-		timerRagingSpiritCD:Cancel()
-		self:SetStage(self.vb.phase + 0.5) -- Return back to whole number
-		self:UnregisterShortTermEvents()
-		NextPhase(self) -- keep this after UnregisterShortTermEvents for P2 vehicle events
-		if self.Options.RangeFrame then
-			DBM.RangeCheck:Hide()
-		end
-	elseif spellName == GetSpellInfo(70358) then -- Drudge Ghouls
-		warnDrudgeGhouls:Show()
-		timerDrudgeGhouls:Start()
-	elseif spellName == GetSpellInfo(70498) then -- Vile Spirits
-		warnSummonVileSpirit:Show()
-		timerVileSpirit:Start()
-	elseif spellName == GetSpellInfo(70541) then -- Infest
-		self.vb.infestCount = self.vb.infestCount + 1
-		warnInfest:Show(self.vb.infestCount)
-		specWarnInfest:Show(self.vb.infestCount)
-		timerInfestCD:Start(nil, self.vb.infestCount+1)
-		soundInfestSoon:Cancel()
-		soundInfestSoon:Schedule(22.5-2, "Interface\\AddOns\\DBM-Core\\sounds\\RaidAbilities\\infestSoon.mp3")
-	elseif spellName == GetSpellInfo(72762) then -- Defile
-		self.vb.defileCount = self.vb.defileCount + 1
-		self:BossTargetScanner(36597, "DefileTarget", 0.02, 15)
-		warnDefileSoon:Cancel()
-		warnDefileSoon:CancelVoice()
-		warnDefileSoon:Schedule(27, self.vb.defileCount+1)
-		warnDefileSoon:ScheduleVoice(27, "scatter")
-		timerDefileCD:Start(nil, self.vb.defileCount+1)
-	elseif spellName == GetSpellInfo(73539) then -- Shadow Trap (Heroic)
-		self:BossTargetScanner(36597, "TrapTarget", 0.02, 10)
-		timerTrapCD:Start()
-	elseif spellName == GetSpellInfo(72350) then -- Fury of Frostmourne
-		self:SetWipeTime(190) --Change min wipe time mid battle to force dbm to keep module loaded for this long out of combat roleplay, hopefully without breaking mod.
-		self:Stop()
-		self:ClearIcons()
-		timerRoleplay:Start()
-	end
-end
-]]
-
-function mod:UNIT_SPELLCAST_SUCCEEDED(_, spellName)
---	if spellName == soulshriek and mod:LatencyCheck() then
---		self:SendSync("SoulShriek", UnitGUID(uId))
-	if (spellName == GetSpellInfo(74361) or spellName == GetSpellInfo(69037)) and self:AntiSpam(5, 4) then -- Summon Val'kyr Periodic (10H, 25N, 25H) | Summon Val'kyr (10N)
-		table.wipe(valkyrTargets)	-- reset valkyr cache for next round
-		grabIcon = 2
-		self.vb.valkIcon = 2
-		self.vb.valkyrWaveCount = self.vb.valkyrWaveCount + 1
-		warnSummonValkyr:Show(self.vb.valkyrWaveCount)
-		timerSummonValkyr:Start(nil, self.vb.valkyrWaveCount+1)
-	--[[
-	elseif spellName == GetSpellInfo(73654) then -- Harvest Souls (Heroic)
-		specWarnHarvestSouls:Show()
-		--specWarnHarvestSouls:Play("phasechange")
---		timerHarvestSoulCD:Start(106.1) -- Custom edit to make Harvest Souls timers work again. REVIEW! 1s variance? (25H Lordaeron 2022/09/03 || 25H Lordaeron 2022/11/16) - 106.4, 107.5, 106.5 || 106.1, 106.3, 106.6
-		timerVileSpirit:Cancel()
-		timerSoulreaperCD:Cancel()
-		soundSoulReaperSoon:Cancel()
-		timerDefileCD:Cancel()
-		warnDefileSoon:Cancel()
-		warnDefileSoon:CancelVoice()
-		self:SetWipeTime(50)--We set a 45 sec min wipe time to keep mod from ending combat if you die while rest of raid is in frostmourn
-		self:Schedule(50, RestoreWipeTime, self)
---		self:Schedule(48.55, leftFrostmourne, self) -- Subtract [48.55]s from Exit FM to last CAST_SUCCESS diff. Timestamps: Harvest cast success > Enter Frostmourne (SAA 73655) > Exit FM (SAR 73655) > Exit FM (ZONE_CHANGED) > Harvest cast. (25H Lordaeron [2023-08-23]@[22:14:48]) - "Harvest Souls-74297-npc:36597-3706 = pull:452.4/Stage 3/14.0, 107.3, 107.2" => '107.3 calculation as follows': 452.42 > 458.44 [6.02] > 500.97 [42.53/48.55] > 501.39 [0.42/42.95/48.97] > 559.69 [58.30/58.72/101.25/107.27]
-	]]
 	end
 end
 

@@ -349,6 +349,7 @@ L:SetMiscLocalization({
 	LKRoleplay				= "¿Me pregunto si de verdad os mueve la... rectitud?",
 	ValkGrabbedIcon			= "Una Val'kyr ha agarrado a %s {rt%d}",
 	ValkGrabbed				= "Una Val'kyr ha agarrado a %s",
+	EmoteDefileCast			= "¡%s comienza a lanzar Profanar!",
 	PlagueStackWarning		= "Aviso: %s tiene %d acumulaciones de Peste necrótica",
 	AchievementCompleted	= ">> LOGRO COMPLETADO: %s tiene %d acumulaciones de Plaga necrótica <<",
 	FrameTitle				= "Valkyr targets", --Needs Translating
