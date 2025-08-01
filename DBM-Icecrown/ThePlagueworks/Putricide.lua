@@ -1,12 +1,11 @@
 local mod	= DBM:NewMod("Putricide", "DBM-Icecrown", 2)
 local L		= mod:GetLocalizedStrings()
+local sformat = string.format
 
-local select = select
-
-mod:SetRevision("20241116144454")
+mod:SetRevision("20250801233610")
 mod:SetCreatureID(36678)
 mod:SetUsedIcons(1, 2, 3, 4)
-mod:SetHotfixNoticeRev(20240611000000)
+mod:SetHotfixNoticeRev(20250801000000)
 mod:SetMinSyncRevision(20220908000000)
 
 mod:RegisterCombat("combat")
@@ -19,14 +18,13 @@ mod:RegisterEventsInCombat(
 	"SPELL_AURA_REFRESH 70539 72457 72875 72876 70542",
 	"SPELL_AURA_REMOVED 70447 72836 72837 72838 70672 72455 72832 72833 72855 72856 70911 71615 70539 72457 72875 72876 70542",
 	"CHAT_MSG_MONSTER_YELL",
-	"UNIT_HEALTH boss1"
+	"CHAT_MSG_RAID_BOSS_EMOTE",
+	"UNIT_HEALTH"
 --	"UNIT_SPELLCAST_SUCCEEDED boss1"
 )
 
-local myRealm = select(3, DBM:GetMyPlayerInfo())
-
 -- General
-local berserkTimer					= mod:NewBerserkTimer((myRealm == "Lordaeron" or myRealm == "Frostmourne") and (mod:IsDifficulty("normal10") and 437.5 or mod:IsDifficulty("normal25") and 450 or 480) or 600)
+local berserkTimer					= mod:NewBerserkTimer(600)
 
 -- buffs from "Drink Me"
 local timerMutatedSlash				= mod:NewTargetTimer(20, 70542, nil, false, nil, 5, nil, DBM_COMMON_L.TANK_ICON)
@@ -50,9 +48,9 @@ local yellUnboundPlague				= mod:NewYellMe(70911, false)	-- Heroic Ability, disa
 
 local timerGaseousBloat				= mod:NewTargetTimer(20, 70672, nil, nil, nil, 3)			-- Duration of debuff
 local timerGaseousBloatCast			= mod:NewCastTimer(3, 70672, nil, nil, nil, 3)				-- Cast duration
-local timerSlimePuddleCD			= mod:NewCDTimer(35, 70341, nil, nil, nil, 5, nil, DBM_COMMON_L.TANK_ICON)				-- Approx
-local timerUnstableExperimentCD		= mod:NewCDTimer(35, 70351, nil, nil, nil, 1, nil, DBM_COMMON_L.DEADLY_ICON, true) -- 5s variance [35-40]. Added "keep" arg (10N Icecrown 2022/08/20 || 10N Icecrown 2022/08/25 || 10H Lordaeron 2022/09/02 || 25H Lordaeron 2022/09/04) - 39.1, 38.0 || 39.1, 38.0 || Stage 1/30.7, 36.2 ; Stage 1/33.9, 67.6, Stage 2/2.1, 36.5/38.6, 36.7; Stage 1/30.5, 35.7, Stage 2/41.6 || Stage 1/30.5, 68.3, Stage 2/4.9, 32.8/37.7, 37.7
-local timerUnboundPlagueCD			= mod:NewNextTimer(90, 70911, nil, nil, nil, 3, nil, DBM_COMMON_L.HEROIC_ICON)
+local timerSlimePuddleCD			= mod:NewNextTimer(35, 70341, nil, nil, nil, 5, nil, DBM_COMMON_L.TANK_ICON) -- Almost no variance. SPELL_CAST_SUCCESS: (Aura 3.3.5: 25H [2025-07-23]@[16:15:59]) - "Charco de baba-70341-npc:36678-8412675 = pull:9.88/[Stage 1/0.15] 9.74, 0.00, Intermission 1/25.46, Stage 1.5/35.01, 4.51/39.52/64.98, 0.00, 35.04, 0.00, 35.10, 0.00, 35.07, 0.00, Intermission 2/36.03, Stage 2/28.02, 1.01/29.02/65.05, 0.00, 35.14, 0.00, 35.07, 0.00"
+local timerUnstableExperimentCD		= mod:NewVarTimer("v35-40", 70351, nil, nil, nil, 1, nil, DBM_COMMON_L.DEADLY_ICON, true) -- 5s variance [35-40]. Added "keep" arg. SPELL_CAST_START: (Aura 3.3.5: 25H [2025-07-23]@[16:15:59]) - "Experimento inestable-71968-npc:36678-8412675 = pull:30.66/[Stage 1/0.15] 30.52, Intermission 1/4.68, Stage 1.5/35.01, 27.12/62.14/66.81, 35.96, 38.84, 38.19, Intermission 2/5.64, Stage 2/28.02",
+local timerUnboundPlagueCD			= mod:NewNextTimer(90, 70911, nil, nil, nil, 3, nil, DBM_COMMON_L.HEROIC_ICON) -- REVIEW! SPELL_CAST_SUCCESS: (Aura 3.3.5: 25H [2025-07-23]@[16:15:59]) - "Peste desatada-72856-npc:36678-8412675 = pull:19.82/[Stage 1/0.15] 19.68, Intermission 1/15.52, Stage 1.5/35.01, 69.58/104.59/120.11, Intermission 2/76.17, Stage 2/28.02, 15.86/43.88/120.05"
 local timerUnboundPlague			= mod:NewBuffActiveTimer(12, 70911, nil, nil, nil, 3)		-- Heroic Ability: we can't keep the debuff 60 seconds, so we have to switch at 12-15 seconds. Otherwise the debuff does to much damage!
 
 local soundSlimePuddle				= mod:NewSound(70341)
@@ -73,9 +71,9 @@ local warnChokingGasBomb			= mod:NewSpellAnnounce(71255, 3, nil, "Melee")		-- Ph
 local specWarnChokingGasBomb		= mod:NewSpecialWarningMove(71255, "Melee", nil, nil, 1, 2)
 local specWarnMalleableGooCast		= mod:NewSpecialWarningSpell(72295, "Ranged", nil, nil, 2, 2)
 
-local timerChokingGasBombCD			= mod:NewCDTimer(35.2, 71255, nil, nil, nil, 3, nil, nil, true) -- ~5s variance [35.2-39.8]. Added "keep" arg (25H Lordaeron 2022/09/07 || 25H Lordaeron 2022/09/23 wipe1 || 25H Lordaeron 2022/09/23 kill) - pull:126.3/Stage 2/22.8, 35.3, 35.5, 35.9; pull:126.4/Stage 2/22.1, 36.6, 35.9, 37.3, 38.7, Stage 2.5/7.8, Stage 3/31.9, 30.0/61.9/69.7, 38.2 || pull:121.2/Stage 2/21.9, 37.2, 38.7, 37.7, 38.7, Stage 2.5/2.3, Stage 3/33.0, 33.2/66.1/68.4, 39.4" || Stage 2/21.3, 38.0, 35.2, 35.8, 39.8, Stage 2.5/11.6, Stage 3/33.2, 23.9/57.1/68.8, 35.5
+local timerChokingGasBombCD			= mod:NewVarTimer("v35-40", 71255, nil, nil, nil, 3, nil, nil, true) -- 5s variance [35-40]. Added "keep" arg. SPELL_CAST_SUCCESS: (Aura 3.3.5: 25H [2025-07-23]@[16:15:59]) - "Bomba de gas asfixiante-71255-npc:36678-8412675 = pull:82.48/[Stage 1/0.15, Intermission 1/35.20, Stage 1.5/35.01] 12.12/47.14/82.33, 36.28, 37.85, 38.72, Intermission 2/20.77, Stage 2/28.02, 20.54/48.56/69.33, 39.98",
 local timerChokingGasBombExplosion	= mod:NewCastTimer(12, 71279, nil, nil, nil, 2)
-local timerMalleableGooCD			= mod:NewNextTimer(20, 72295, nil, nil, nil, 3) -- (25H Lordaeron 2022/09/07) - pull:113.6/Stage 2/10.1, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0; pull:114.4/Stage 2/10.1, 20.0, 20.1, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, Stage 2.5/8.1, Stage 3/31.9, 10.0/41.9/50.0, 20.0, 20.0, 20.0, 20.0"
+local timerMalleableGooCD			= mod:NewVarTimer("v28-32", 72295, nil, nil, nil, 3, nil, nil, true) -- REVIEW! ~4s variance [28-32]? Added "keep" arg. CHAT_MSG_RAID_BOSS_EMOTE: (Aura 3.3.5: 25H [2025-07-23]@[16:15:59]) - "?-|TInterface\\Icons\\inv_misc_herb_evergreenmoss.blp:16|t ¡%s lanza |cFF00FF00Moco maleable!|r-npc:Profesor Putricidio = pull:94.75/[Stage 1/0.15, Intermission 1/35.20, Stage 1.5/35.01] 24.40/59.41/94.61, 28.53, 29.87, 28.68, 31.23, Intermission 2/3.04, Stage 2/28.02, 26.38/54.40/57.44, 29.56",
 
 local soundSpecWarnMalleableGoo		= mod:NewSound(72295, nil, "Ranged")
 local soundMalleableGooSoon			= mod:NewSoundSoon(72295, nil, "Ranged")
@@ -90,7 +88,7 @@ mod:AddTimerLine(DBM_CORE_L.SCENARIO_STAGE:format(3)..": 35% – 0%")
 local warnPhase3					= mod:NewPhaseAnnounce(3, 2, nil, nil, nil, nil, nil, 2)
 local warnMutatedPlague				= mod:NewStackAnnounce(72451, 3, nil, "Tank|Healer|RemoveEnrage") -- Phase 3 ability
 
-local timerMutatedPlagueCD			= mod:NewCDTimer(10, 72451, nil, "Tank|Healer|RemoveEnrage", nil, 5, nil, DBM_COMMON_L.TANK_ICON)				-- 10 to 11
+local timerMutatedPlagueCD			= mod:NewNextTimer(10, 72451, nil, "Tank|Healer|RemoveEnrage", nil, 5, nil, DBM_COMMON_L.TANK_ICON) -- 10 to 11. SPELL_AURA_APPLIED: (Aura 3.3.5: 25H [2025-07-23]@[16:15:59]) - "Peste mutada-72672-npc:36678-8412675 = pull:248.85/[Stage 1/0.15, Intermission 1/35.20, Stage 1.5/35.01, Intermission 2/145.75, Stage 2/28.02] 4.73/32.75/178.49/213.51/248.70, 10.00, 10.06, 10.06, 10.09, 10.05, 10.07, 10.09, 10.13"
 
 -- Intermission
 mod:AddTimerLine(DBM_COMMON_L.INTERMISSION)
@@ -112,6 +110,7 @@ mod:GroupSpells(71255, 71279) -- Choking Gas Bomb, Choking Gas Explosion
 
 local redOozeGUIDsCasts = {}
 local firstIntermisisonUnboundElapsed = 0
+local timerDelay = 30
 mod.vb.warned_preP2 = false
 mod.vb.warned_preP3 = false
 mod.vb.unboundCount = 0
@@ -121,7 +120,7 @@ local function NextPhase(self)
 	if self.vb.phase == 2 then
 		warnPhase2:Show()
 		warnPhase2:Play("ptwo")
-		timerUnstableExperimentCD:Start(30+7) -- 19/04/2024: (Heroic) Unstable Experiement scheduled 30 seconds after Create Concoction finishes. https://www.warmane.com/bugtracker/report/121798#comment-114099
+		timerUnstableExperimentCD:Start(30+7)
 		warnUnstableExperimentSoon:Schedule(25+7)
 		-- EVENT_PHASE_TRANSITION - scheduled for Create Concoction cast + 100 ms (will fire [CHAT_MSG_MONSTER_YELL] Hrm, I don't feel a thing. Wha?! Where'd those come from?)
 		timerMalleableGooCD:Start(15) -- Fixed timer after phase 2: 15s
@@ -174,7 +173,7 @@ function mod:OnCombatStart(delay)
 	self:SetStage(1)
 	berserkTimer:Start(-delay)
 	timerSlimePuddleCD:Start(10-delay)
-	timerUnstableExperimentCD:Start(30-delay) -- REVIEW! need P1 N log data to determine whether H/N has difference. heroic 5s variance (10N Icecrown 2022/08/25 || 10H Lordaeron 2022/09/02 || 25H Lordaeron 2022/09/04) - 61 || 33.0; 30.7; 30.5; 33.9 || 30.5
+	timerUnstableExperimentCD:Start(sformat("v%s-%s", 30-delay, 35-delay))
 	warnUnstableExperimentSoon:Schedule(25-delay)
 	table.wipe(redOozeGUIDsCasts)
 	firstIntermisisonUnboundElapsed = 0
@@ -212,6 +211,7 @@ function mod:SPELL_CAST_START(args)
 			warnChokingGasBombSoon:Schedule(59-chokingElapsed-5)
 		end
 	elseif args:IsSpellID(72842, 72843) then		--Volatile Experiment (Heroic intermission)
+		DBM:AddMsg("Volatile Experiment SPELL_CAST_START script fixed. Notify Zidras on Discord or GitHub")
 		self:SetStage(self.vb.phase + 0.5) -- ACTION_CHANGE_PHASE
 		warnVolatileExperiment:Show()
 		warnUnstableExperimentSoon:Cancel()
@@ -249,7 +249,7 @@ function mod:SPELL_CAST_START(args)
 --			if self:IsDifficulty("heroic10") then -- Apply to both 10H and 25H (reason below)
 				-- self:Schedule(35.63, NextPhase, self) -- using longest timer found, since this is a schedule
 				self:RegisterShortTermEvents(
-					"UNIT_TARGET boss1"
+					"UNIT_TARGET"
 				)
 --			end
 		end
@@ -273,7 +273,7 @@ function mod:SPELL_CAST_START(args)
 			--self:Schedule(38.69, NextPhase, self) -- REVIEW! using longest timer found, since this is a schedule
 			--timerNextPhase:Start(38.67) -- (10H Lordaeron [2023-08-12]@[20:34:20]) - 38.67
 			self:RegisterShortTermEvents(
-				"UNIT_TARGET boss1"
+				"UNIT_TARGET"
 			)
 		end
 	end
@@ -298,6 +298,7 @@ function mod:SPELL_CAST_SUCCESS(args)
 		self.vb.unboundCount = self.vb.unboundCount + 1
 		timerUnboundPlagueCD:Start()
 	elseif args:IsSpellID(72615, 72295, 74280, 74281) then -- Malleable Goo
+		DBM:AddMsg("Malleable Goo SPELL_CAST_SUCCESS unhidden from combat log. Notify Zidras on Discord or GitHub") -- It does not fire on this server script. Replaced with CHAT_MSG_RAID_BOSS_EMOTE
 		--self:BossTargetScanner(36678, "MalleableGooTarget", 0.05, 6)
 		specWarnMalleableGooCast:Show()
 		--specWarnMalleableGooCast:Play("watchstep")
@@ -413,13 +414,48 @@ function mod:SPELL_AURA_REMOVED(args)
 end
 
 function mod:CHAT_MSG_MONSTER_YELL(msg)
+	if msg == L.HeroicIntermission or msg:find(L.HeroicIntermission) then -- ACTION_CHANGE_PHASE. Workaround to script not firing Volatile Experiment.
+		self:SetStage(self.vb.phase + 0.5)
+		warnUnstableExperimentSoon:Cancel()
+		timerSlimePuddleCD:AddTime(timerDelay)
+		timerUnboundPlagueCD:AddTime(timerDelay)
+		if self.vb.phase == 1.5 then -- _phase == 2
+			timerUnstableExperimentCD:AddTime(timerDelay)
+			warnUnstableExperimentSoon:Schedule(timerUnstableExperimentCD:GetRemaining()-3)
+			timerMalleableGooCD:Start(50) -- 3s variance [25-28] + heroicDelay (25 on Heroic) = [50-53]
+			soundMalleableGooSoon:Schedule(50-3, "Interface\\AddOns\\DBM-Core\\sounds\\RaidAbilities\\malleable_soon.mp3")
+			timerChokingGasBombCD:Start(60) -- 5s variance [35-40] + heroicDelay (25 on Heroic) = [60-65]
+			soundChokingGasSoon:Schedule(60-3, "Interface\\AddOns\\DBM-Core\\sounds\\RaidAbilities\\choking_soon.mp3")
+			warnChokingGasBombSoon:Schedule(60-5)
+		elseif self.vb.phase == 2.5 then -- _phase == 3
+			timerUnstableExperimentCD:Cancel()
+			timerMalleableGooCD:AddTime(timerDelay)
+			soundMalleableGooSoon:Cancel()
+			soundMalleableGooSoon:Schedule(timerMalleableGooCD:GetRemaining()-3, "Interface\\AddOns\\DBM-Core\\sounds\\RaidAbilities\\malleable_soon.mp3")
+			timerChokingGasBombCD:AddTime(timerDelay)
+			local chokingRemaining = timerChokingGasBombCD:GetRemaining()
+			soundChokingGasSoon:Cancel()
+			soundChokingGasSoon:Schedule(chokingRemaining-3, "Interface\\AddOns\\DBM-Core\\sounds\\RaidAbilities\\choking_soon.mp3")
+			warnChokingGasBombSoon:Cancel()
+			warnChokingGasBombSoon:Schedule(chokingRemaining-5)
+		end
 	-- EVENT_RESUME_ATTACK
-	if msg == L.YellTransform1 or msg:find(L.YellTransform1) then
+	elseif msg == L.YellTransform1 or msg:find(L.YellTransform1) then
 		warnReengage:Schedule(5.5, L.name)
 		timerReengage:Start(5.5)
 	elseif msg == L.YellTransform2 or msg:find(L.YellTransform2) then
 		warnReengage:Schedule(8.5, L.name)
 		timerReengage:Start(8.5)
+	end
+end
+
+function mod:CHAT_MSG_RAID_BOSS_EMOTE(msg)
+	if msg:find(L.MalleableGooCastEmote) then -- Malleable Goo. Workaround to missing CLEU event
+		specWarnMalleableGooCast:Show()
+		timerMalleableGooCD:Start() -- Belongs to EVENT_GROUP_ABILITIES
+		soundSpecWarnMalleableGoo:Play("Interface\\AddOns\\DBM-Core\\sounds\\RaidAbilities\\malleable.mp3")
+		soundMalleableGooSoon:Cancel()
+		soundMalleableGooSoon:Schedule(20-3, "Interface\\AddOns\\DBM-Core\\sounds\\RaidAbilities\\malleable_soon.mp3")
 	end
 end
 
